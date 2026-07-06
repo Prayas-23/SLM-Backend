@@ -1,0 +1,1084 @@
+// =============================================================================
+// Sentinel SLM — Production Prisma Schema
+// PostgreSQL · JWT-only MVP · No RefreshTokens · No MFA · No SSO · No Multi-Tenancy
+// Revised: Architecture Review Pass 2
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+/// Platform roles — revised per architecture review
+enum UserRole {
+  SECURITY_LEAD
+  SECURITY_ANALYST
+  APPLICATION_OWNER
+  INFRASTRUCTURE_OWNER
+  READ_ONLY
+}
+
+/// Security channel discriminator.
+/// Qualys is stored as a VAPT partner field, NOT a separate source.
+enum RequestSource {
+  VAPT        // Periodic + Pre-release VAPT (partners: SecureLayer7, Qualys)
+  BUG_BOUNTY  // Bug Bounty programmes (HackerOne, BugCrowd)
+  RED_TEAM    // Red Teaming engagements (Cobalt.io)
+  CLOUDSEK    // CloudSEK threat intelligence findings
+  CVS         // Continuous Vulnerability Scanning
+}
+
+/// Security request lifecycle — revised per architecture review
+enum RequestStatus {
+  OPEN
+  SUBMITTED
+  IN_PROGRESS
+  PATCHING
+  REVALIDATION
+  CLOSED
+  ACTIVE
+}
+
+/// Finalized 6-state vulnerability workflow.
+/// No REOPENED. No RISK_ACCEPTED. No REJECTED.
+enum VulnerabilityStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  PATCHED
+  PENDING_REVALIDATION
+  CLOSED
+}
+
+enum FindingStatus {
+  OPEN
+  ACCEPTED
+  DUPLICATE
+  INFORMATIONAL
+  FALSE_POSITIVE
+  CLOSED
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFORMATIONAL
+}
+
+/// Supports All / Production / Pre-Production dashboard filter
+enum Environment {
+  PRODUCTION
+  PRE_PRODUCTION
+  DEVELOPMENT
+}
+
+enum AssetType {
+  WEB_APPLICATION
+  API
+  MOBILE_IOS
+  MOBILE_ANDROID
+  MICROSERVICE
+}
+
+enum InfraType {
+  PHYSICAL_SERVER
+  VIRTUAL_MACHINE
+  NETWORK_DEVICE
+  FIREWALL
+  CONTAINER_CLUSTER
+  DATABASE_SERVER
+}
+
+enum CloudProvider {
+  AWS
+  AZURE
+  GCP
+}
+
+enum CloudResourceType {
+  COMPUTE
+  DATABASE
+  CONTAINER
+  SERVERLESS
+  STORAGE
+  NETWORK
+  GATEWAY
+  SECURITY
+  OTHER
+}
+
+enum AuditAction {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  DELETED
+  RESTORED
+  ASSIGNED
+  COMMENTED
+  ATTACHED
+}
+
+/// Assignment method for CVS findings
+enum CvsAssignmentMethod {
+  AUTO    // Auto-assigned from asset owner lookup
+  ASSET   // Manually triggered "Assign by Asset"
+  MANUAL  // Direct manual assignment
+}
+
+enum AuditEntityType {
+  SECURITY_REQUEST
+  VULNERABILITY
+  APPLICATION
+  INFRASTRUCTURE_ASSET
+  CLOUD_RESOURCE
+  USER
+  SCAN_FINDING
+  REPORT
+}
+
+enum ReportStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+  EXPIRED
+}
+
+enum SettingCategory {
+  GENERAL
+  SLA
+  NOTIFICATIONS
+  INTEGRATIONS
+  SECURITY
+  REPORTING
+  AI
+}
+
+enum SettingDataType {
+  STRING
+  INTEGER
+  BOOLEAN
+  JSON
+}
+
+// =============================================================================
+// IDENTITY & ACCESS
+// =============================================================================
+
+/// Platform user. Single role per user for JWT-only MVP.
+/// No RefreshToken model. No MFA. No Azure AD SSO. No tenantId.
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String
+  staffId      String?   @unique
+  department   String?
+  passwordHash String
+  role         UserRole  @default(READ_ONLY)
+  avatarUrl    String?
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  // Relations
+  initiatedRequests           SecurityRequest[]      @relation("RequestInitiator")
+  assignedRequests            SecurityRequest[]      @relation("RequestAssignee")
+  assignedVulnerabilities     Vulnerability[]        @relation("VulnAssignee")
+  ownedApplications           Application[]          @relation("AppOwner")
+  ownedInfrastructureAssets   InfrastructureAsset[]  @relation("InfraOwner")
+  comments                    Comment[]
+  auditLogs                   AuditLog[]
+  reports                     Report[]
+  platformSettingsUpdated     PlatformSetting[]      @relation("SettingUpdatedBy")
+  conversations               AIConversation[]       @relation("UserConversations")
+
+  @@index([email])
+  @@index([role])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+// =============================================================================
+// ASSETS
+// =============================================================================
+
+/// Application inventory — central ownership anchor for the platform
+model Application {
+  id                 String      @id @default(uuid())
+  appId              String      @unique   // APP-0042
+  name               String      @unique   // legacy-erp
+  description        String?
+  type               AssetType
+  environment        Environment @default(PRODUCTION)
+  department         String?
+  classification     String?               // Internal / Internet Facing / Restricted
+  criticality        String?               // Critical / Non-Critical
+  ownerId            String?
+  ownerEmail         String?
+  internetAccessible Boolean     @default(false)
+  piiData            Boolean     @default(false)
+  biaApp             Boolean     @default(false)
+  prodUrl            String?
+  preprodUrl         String?
+  devUrl             String?
+  vaptStatus         String?               // Overdue / Due / Scheduled
+  lastVaptDate       DateTime?
+  nextVaptDate       DateTime?
+  registeredOn       DateTime?
+
+  isActive           Boolean     @default(true)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  deletedAt          DateTime?
+
+  owner                 User?                   @relation("AppOwner", fields: [ownerId], references: [id])
+  securityRequests      SecurityRequest[]        @relation("RequestTargetApp")
+  cloudResources        AppCloudResource[]
+  infrastructureAssets  AppInfrastructureAsset[]
+
+  @@index([environment])
+  @@index([criticality])
+  @@index([deletedAt])
+  @@map("applications")
+}
+
+/// Infrastructure asset inventory — servers, firewalls, network devices
+model InfrastructureAsset {
+  id               String      @id @default(uuid())
+  serverId         String      @unique   // SRV-0001
+  serverName       String                // edge-router-fw
+  hostname         String?
+  ip               String?
+  publicIp         Boolean     @default(false)
+  type             InfraType
+  environment      Environment @default(PRODUCTION)
+  location         String?               // AWS ap-south-1 / On-Premise
+  os               String?               // Ubuntu 22.04 / FortiOS 7.4.3
+  role             String?               // Edge firewall and router
+  primaryApp       String?               // denormalized app name
+  criticality      String?
+  assetOwnerId     String?
+  assetOwnerEmail  String?
+  appOwnerEmail    String?
+  biaApp           Boolean     @default(false)
+
+  isActive         Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  deletedAt        DateTime?
+
+  assetOwner       User?                   @relation("InfraOwner", fields: [assetOwnerId], references: [id])
+  securityRequests SecurityRequest[]        @relation("RequestTargetInfra")
+  scanFindings     ScanFinding[]
+  cloudResources   CloudResource[]          @relation("InfraCloudLink")
+  applications     AppInfrastructureAsset[]
+
+  @@index([environment])
+  @@index([criticality])
+  @@index([deletedAt])
+  @@map("infrastructure_assets")
+}
+
+/// Cloud account groupings — AWS/Azure/GCP accounts
+model CloudAccount {
+  id          String        @id @default(uuid())
+  accountId   String        @unique   // CA-001
+  extId       String                  // 123456789012
+  provider    CloudProvider
+  environment Environment   @default(PRODUCTION)
+  label       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  cloudResources CloudResource[]
+
+  @@index([provider])
+  @@index([deletedAt])
+  @@map("cloud_accounts")
+}
+
+/// Cloud resource inventory — EC2, RDS, EKS, Lambda, ALB, S3, WAF
+model CloudResource {
+  id             String            @id @default(uuid())
+  resourceId     String            @unique   // CR-001
+  resourceExtId  String?                     // i-0a1b2c3d4e5f6a7b
+  resourceName   String
+  type           CloudResourceType
+  technologyName String?                     // Amazon EC2 / AWS RDS
+  stackLayer     String?                     // Infrastructure / Data / Platform
+  cloudProvider  CloudProvider
+  cloudAccountId String?
+  status         String?                     // Running / Available / Active
+  region         String?
+  environment    Environment       @default(PRODUCTION)
+  infraAssetId   String?
+  firstSeen      DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  deletedAt      DateTime?
+
+  cloudAccount CloudAccount?          @relation(fields: [cloudAccountId], references: [id])
+  infraAsset   InfrastructureAsset?   @relation("InfraCloudLink", fields: [infraAssetId], references: [id])
+  applications AppCloudResource[]
+
+  @@index([cloudProvider])
+  @@index([environment])
+  @@index([deletedAt])
+  @@map("cloud_resources")
+}
+
+/// Many-to-many join: Application ↔ CloudResource
+model AppCloudResource {
+  id              String   @id @default(uuid())
+  applicationId   String
+  cloudResourceId String
+  linkedAt        DateTime @default(now())
+
+  application   Application   @relation(fields: [applicationId],   references: [id], onDelete: Cascade)
+  cloudResource CloudResource @relation(fields: [cloudResourceId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, cloudResourceId])
+  @@map("app_cloud_resources")
+}
+
+/// Many-to-many join: Application ↔ InfrastructureAsset
+model AppInfrastructureAsset {
+  id                    String   @id @default(uuid())
+  applicationId         String
+  infrastructureAssetId String
+  linkedAt              DateTime @default(now())
+
+  application           Application         @relation(fields: [applicationId],         references: [id], onDelete: Cascade)
+  infrastructureAsset   InfrastructureAsset @relation(fields: [infrastructureAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, infrastructureAssetId])
+  @@map("app_infrastructure_assets")
+}
+
+// =============================================================================
+// SECURITY REQUESTS — UNIFIED
+// =============================================================================
+
+/// Unified request table for all security channels.
+/// VAPT (Periodic + Pre-release), Bug Bounty, Red Team, CloudSEK.
+/// Qualys stored as partner field on VAPT requests, not as a source.
+/// Channel-specific fields stored in assessmentMeta JSON.
+model SecurityRequest {
+  id               String        @id @default(uuid())
+  reqId            String        @unique   // VAPT-2025-0042 / BB-2026-0001
+  source           RequestSource
+  environment      Environment   @default(PRODUCTION)
+  status           RequestStatus @default(OPEN)
+
+  // Asset target — one of the two is set, not both
+  targetAppId    String?   // VAPT / BugBounty / RedTeam / CloudSEK
+  targetInfraId  String?   // VAPT infra-scope requests
+
+  // Partner for VAPT: SecureLayer7 / Qualys
+  // Partner for BugBounty: HackerOne / BugCrowd
+  // Partner for RedTeam: Cobalt.io
+  partner          String?
+  programmeUrl     String?   // Bug Bounty programme URL
+
+  initiatedById  String?
+  assignedToId   String?
+
+  initiatedOn      DateTime  @default(now())
+  submittedAt      DateTime?
+  startedAt        DateTime?
+  findingsSharedAt DateTime?
+  closedAt         DateTime?
+
+  // Denormalized counts — updated by background job on vuln changes
+  totalFindings  Int @default(0)
+  openFindings   Int @default(0)
+  critFindings   Int @default(0)
+  highFindings   Int @default(0)
+  slaCompliance  Int @default(100)
+
+  // Channel-specific metadata blob
+  // VAPT:       { vaptType: "PERIODIC"|"PRE_RELEASE", scope, authMechanism, facing, postmanCollection, uatUrl, prodUrls, wafInPlace }
+  // BUG_BOUNTY: { programme, rewardTier, engagementPeriod }
+  // RED_TEAM:   { team, scope, techniques, engagementPeriod }
+  // CLOUDSEK:   { integrationId, scanProfile, cloudsekRef }
+  assessmentMeta Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  targetApp       Application?         @relation("RequestTargetApp",   fields: [targetAppId],   references: [id])
+  targetInfra     InfrastructureAsset? @relation("RequestTargetInfra", fields: [targetInfraId], references: [id])
+  initiatedBy     User?                @relation("RequestInitiator",   fields: [initiatedById], references: [id])
+  assignedTo      User?                @relation("RequestAssignee",    fields: [assignedToId],  references: [id])
+  vulnerabilities Vulnerability[]
+  findings        Finding[]            @relation("RequestFindings")
+  comments        Comment[]            @relation("RequestComments")
+  attachments     Attachment[]         @relation("RequestAttachments")
+
+  @@index([source])
+  @@index([status])
+  @@index([environment])
+  @@index([initiatedOn])
+  @@index([targetAppId])
+  @@index([targetInfraId])
+  @@index([deletedAt])
+  @@map("security_requests")
+}
+
+// =============================================================================
+// VULNERABILITIES — UNIFIED
+// =============================================================================
+
+/// Unified vulnerability record for all channels.
+/// Supports cross-channel All Vulnerabilities view and SLA aggregation.
+model Vulnerability {
+  id                String              @id @default(uuid())
+  vulnId            String              @unique   // VAPT-2025-0042-001
+  requestId         String
+  source            RequestSource
+  environment       Environment         @default(PRODUCTION)
+
+  // Classification
+  type              String
+  shortDesc         String
+  description       String?
+  severity          Severity
+  cvss              Float?
+  cve               String?
+  affectedComponent String?
+  references        String[]
+
+  // Lifecycle — 6-state workflow only
+  status            VulnerabilityStatus @default(OPEN)
+  pendingWith       String?
+  assignedToId      String?
+
+  // Exploit intelligence
+  exploitAvail      String?
+  exploitConf       String?
+
+  // Detail fields
+  poc               String?
+  remediation       String?
+  impact            String?
+
+  // Reporting
+  reportedBy        String?
+  reportedOn        DateTime?
+
+  // SLA
+  slaDueDate        DateTime?
+
+  // CVS scan linkage — set when ScanFinding is promoted to a Vulnerability
+  scanFindingId     String?   @unique
+
+  // New Finding linkage
+  findingId         String?   @unique
+
+  // External system reference — CloudSEK ID / Qualys finding ID
+  externalId        String?
+
+  closedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  request       SecurityRequest             @relation(fields: [requestId],     references: [id])
+  assignedTo    User?                       @relation("VulnAssignee",          fields: [assignedToId], references: [id])
+  scanFinding   ScanFinding?                @relation(fields: [scanFindingId], references: [id])
+  finding       Finding?                    @relation(fields: [findingId], references: [id])
+  lifecycleLogs VulnerabilityLifecycleLog[]
+  slaTracking   SlaTracking?
+  comments      Comment[]                   @relation("VulnComments")
+  attachments   Attachment[]                @relation("VulnAttachments")
+  controlMappings VulnerabilityControlMapping[]
+
+
+  @@index([requestId])
+  @@index([status])
+  @@index([severity])
+  @@index([source])
+  @@index([environment])
+  @@index([reportedOn])
+  @@index([slaDueDate])
+  @@index([deletedAt])
+  @@map("vulnerabilities")
+}
+
+/// Immutable state-change history — one row per status transition
+model VulnerabilityLifecycleLog {
+  id              String               @id @default(uuid())
+  vulnerabilityId String
+  fromStatus      VulnerabilityStatus?
+  toStatus        VulnerabilityStatus
+  actorName       String
+  actorId         String?
+  actorRole       String?
+  remarks         String?
+  timestamp       DateTime             @default(now())
+
+  vulnerability Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+
+  @@index([vulnerabilityId])
+  @@index([timestamp])
+  @@map("vulnerability_lifecycle_logs")
+}
+
+// =============================================================================
+// FINDINGS (NEW INTAKE WORKFLOW)
+// =============================================================================
+
+model Finding {
+  id                      String        @id @default(uuid())
+  findingId               String        @unique // e.g. FND-2026-0001
+  title                   String
+  description             String?
+  severity                Severity
+  status                  FindingStatus @default(OPEN)
+  sourceType              RequestSource
+  sourceId                String?       // ID of the SecurityRequest
+  cvssScore               Float?
+  cveId                   String?
+  recommendation          String?
+  evidence                String?       // e.g. POC or log
+  convertedToVulnerability Boolean      @default(false)
+
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+
+  securityRequest         SecurityRequest? @relation("RequestFindings", fields: [sourceId], references: [id])
+  vulnerability           Vulnerability?
+
+  @@index([sourceType])
+  @@index([status])
+  @@map("findings")
+}
+
+// =============================================================================
+// SLA
+// =============================================================================
+
+/// SLA policy definitions per severity — admin configurable
+model SlaPolicy {
+  id          String   @id @default(uuid())
+  severity    Severity @unique
+  slaDays     Int      // Critical:30 / High:45 / Medium:90 / Low:180 / Info:365
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("sla_policies")
+}
+
+/// Per-vulnerability SLA instance — 1:1 with Vulnerability
+model SlaTracking {
+  id              String    @id @default(uuid())
+  vulnerabilityId String    @unique
+  dueDate         DateTime
+  isBreached      Boolean   @default(false)
+  breachedAt      DateTime?
+  notifiedAt      DateTime?
+  daysRemaining   Int?      // cached — updated by nightly scheduler
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  vulnerability Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+
+  @@index([dueDate])
+  @@index([isBreached])
+  @@map("sla_tracking")
+}
+
+// =============================================================================
+// SCANNING — QUALYS CVS
+// =============================================================================
+
+/// Raw Qualys CVS scan finding. Promoted to Vulnerability when triaged.
+/// Linked to a VAPT SecurityRequest with partner = "Qualys".
+model ScanFinding {
+  id          String      @id @default(uuid())
+  findingId   String      @unique   // VMP-2026-0001
+  type        String
+  shortDesc   String
+  description String?
+  poc         String?
+  remediation String?
+  severity    Severity
+  cvss        Float?
+  cve         String?
+  assetId     String?
+  assetName   String?
+  assetIp     String?
+  assetOwner  String?
+  assetEnv    Environment @default(PRODUCTION)
+  vaReqId     String?     // linked VAPT SecurityRequest reqId after VA creation
+  status      String?     // Unassigned / Assigned / In Progress / Patched
+  timestamp   DateTime    @default(now())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  infrastructureAsset InfrastructureAsset? @relation(fields: [assetId], references: [id])
+  vulnerability       Vulnerability?
+
+  @@index([severity])
+  @@index([assetId])
+  @@index([assetEnv])
+  @@index([timestamp])
+  @@map("scan_findings")
+}
+
+/// CVS finding — ingestion queue for scanner output awaiting triage.
+/// Supports Manual, Qualys, Tenable, Rapid7, OpenVAS, Microsoft Defender sources.
+model ContinuousScanFinding {
+  id          String    @id @default(uuid())
+
+  // Scanner / source metadata
+  scannerName String                    // "MANUAL" | "QUALYS" | "TENABLE" | "RAPID7" | "OPENVAS" | "DEFENDER"
+  source      String    @default("MANUAL") // future: scanner type discriminator
+
+  // Asset linkage
+  assetId     String?                   // FK to InfrastructureAsset.id
+  assetName   String?
+
+  // Finding details
+  vulnTitle   String
+  description String?
+  cve         String?
+  severity    Severity
+  cvss        Float?
+
+  // Triage status: NEW | ASSIGNED | ACCEPTED | PATCHED
+  status      String    @default("NEW")
+
+  // Assignment — populated on assign actions
+  assignedOwnerId   String?               // User.id of the assigned owner
+  assignedOwnerName String?               // Denormalized name for display
+  assignmentMethod  CvsAssignmentMethod?  // AUTO | ASSET | MANUAL
+
+  // SLA & timestamps
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  slaDueAt    DateTime?
+  assignedAt  DateTime?
+  acceptedAt  DateTime?
+  patchedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  // Downstream linkage — set when Accept creates SR + Vuln
+  securityRequestId String?
+  vulnerabilityId   String?
+
+  @@index([status])
+  @@index([severity])
+  @@index([assetId])
+  @@index([assignedOwnerId])
+  @@index([createdAt])
+  @@map("continuous_scan_findings")
+}
+
+// =============================================================================
+// WORKFLOW & COLLABORATION
+// =============================================================================
+
+/// Polymorphic threaded comments — on SecurityRequest or Vulnerability
+model Comment {
+  id              String   @id @default(uuid())
+  authorId        String
+  authorName      String
+  authorRole      String?
+  requestId       String?
+  vulnerabilityId String?
+  body            String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  author        User             @relation(fields: [authorId], references: [id])
+  request       SecurityRequest? @relation("RequestComments", fields: [requestId],       references: [id])
+  vulnerability Vulnerability?   @relation("VulnComments",    fields: [vulnerabilityId], references: [id])
+
+  @@index([requestId])
+  @@index([vulnerabilityId])
+  @@index([createdAt])
+  @@map("comments")
+}
+
+/// Polymorphic file attachments — on SecurityRequest or Vulnerability
+model Attachment {
+  id              String   @id @default(uuid())
+  uploadedById    String?
+  uploadedByName  String?
+  requestId       String?
+  vulnerabilityId String?
+  filename        String
+  mimeType        String?
+  sizeBytes       Int?
+  storageKey      String
+  url             String?
+  createdAt       DateTime @default(now())
+
+  request       SecurityRequest? @relation("RequestAttachments", fields: [requestId],       references: [id])
+  vulnerability Vulnerability?   @relation("VulnAttachments",    fields: [vulnerabilityId], references: [id])
+
+  @@index([requestId])
+  @@index([vulnerabilityId])
+  @@map("attachments")
+}
+
+/// Immutable audit trail for all entity mutations
+model AuditLog {
+  id         String          @id @default(uuid())
+  actorId    String?
+  actorName  String?
+  entityType AuditEntityType
+  entityId   String
+  action     AuditAction
+  before     Json?
+  after      Json?
+  metadata   Json?           // { ip, userAgent, source }
+  timestamp  DateTime        @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+// =============================================================================
+// PLATFORM SETTINGS
+// =============================================================================
+
+/// Structured platform configuration store.
+/// Replaces flat SystemSetting. Grouped by category with data-type awareness.
+model PlatformSetting {
+  id          String          @id @default(uuid())
+  category    SettingCategory
+  key         String          @unique
+  value       String
+  dataType    SettingDataType @default(STRING)
+  label       String?         // Human-readable display name
+  description String?
+  isEditable  Boolean         @default(true)
+  updatedById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  updatedBy User? @relation("SettingUpdatedBy", fields: [updatedById], references: [id])
+
+  @@index([category])
+  @@map("platform_settings")
+}
+
+// =============================================================================
+// REPORTING
+// =============================================================================
+
+/// Generated report record — PDF / XLSX / CSV
+model Report {
+  id            String       @id @default(uuid())
+  title         String
+  requestedById String?
+  status        ReportStatus @default(PENDING)
+  format        String?      // PDF / XLSX / CSV
+  filters       Json?        // { source, environment, fromDate, toDate, severity }
+  storageKey    String?
+  url           String?
+  expiresAt     DateTime?
+  generatedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  requestedBy User? @relation(fields: [requestedById], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("reports")
+}
+
+/// Scheduled recurring report job
+model ReportSchedule {
+  id         String    @id @default(uuid())
+  title      String
+  cronExpr   String
+  format     String?
+  filters    Json?
+  recipients String[]
+  isActive   Boolean   @default(true)
+  lastRunAt  DateTime?
+  nextRunAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@map("report_schedules")
+}
+
+// =============================================================================
+// AI CONVERSATIONS — Phase 3
+// =============================================================================
+
+/// A single AI conversation session owned by one user.
+model AIConversation {
+  id            String    @id @default(uuid())
+  title         String    @default("New Conversation")
+  userId        String
+  provider      String?   // e.g. "gemini"
+  model         String?   // e.g. "gemini-2.5-flash"
+  archived      Boolean   @default(false)
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user     User        @relation("UserConversations", fields: [userId], references: [id], onDelete: Cascade)
+  messages AIMessage[]
+
+  @@index([userId])
+  @@index([lastMessageAt])
+  @@index([archived])
+  @@map("ai_conversations")
+}
+
+/// A single message within an AIConversation.
+model AIMessage {
+  id             String        @id @default(uuid())
+  conversationId String
+  role           AIMessageRole
+  content        String        @db.Text
+
+  // Intent context captured for every AI turn (null for USER messages)
+  intent    String?   // e.g. "LIST"
+  entity    String?   // e.g. "VULNERABILITY"
+  operation String?
+
+  // Token and perf metadata (null for USER messages)
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  responseTimeMs   Int?
+
+  // Arbitrary metadata (filters, confidence, resultCount, etc.)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("ai_messages")
+}
+
+enum AIMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// =============================================================================
+// COMPLIANCE — Security Controls & Framework Mapping
+// =============================================================================
+
+/// Controlled vocabulary for security control categories.
+/// Avoids free-text category strings on SecurityControl.
+enum SecurityControlCategory {
+  APPLICATION      // Input validation, auth, secrets — app-layer controls
+  INFRASTRUCTURE   // Patching, config hardening, network — infra-layer controls
+  DATA             // Encryption, data classification, DLP
+  CLOUD            // Cloud-specific posture, CSPM findings
+  GOVERNANCE       // Asset mgmt, policy, incident response, awareness
+}
+
+/// Fixed lifecycle states for a control assessment against one asset.
+enum ControlAssessmentStatus {
+  COMPLIANT
+  PARTIALLY_COMPLIANT
+  NON_COMPLIANT
+  NOT_ASSESSED
+}
+
+/// Source that produced the ControlAssessment record.
+enum AssessmentSource {
+  MANUAL    // Analyst created directly
+  VAPT      // Derived from a completed VAPT SecurityRequest
+  CVS       // Derived from Continuous Vulnerability Scanning
+  AUTO      // System-generated (e.g. nightly rule engine)
+}
+
+/// Stable keys for known external compliance frameworks.
+/// Extending with a new framework requires only a new enum member + seed row.
+enum ComplianceFrameworkKey {
+  CIS_CONTROLS_V8
+  NIST_CSF_2
+  ISO_27001_2022
+  PCI_DSS_V4
+}
+
+/// Confidence level assigned to a VulnerabilityControlMapping.
+enum MappingConfidence {
+  HIGH    // Analyst confirmed
+  MEDIUM  // Auto-rule match — plausible but unreviewed
+  LOW     // AI suggestion — requires analyst confirmation
+}
+
+/// Who or what created the VulnerabilityControlMapping.
+enum MappingSource {
+  ANALYST    // Manually selected by a security analyst
+  AUTO_RULE  // Matched by the keyword rule engine at vuln creation
+  AI         // Suggested by the AI intent engine
+}
+
+// =============================================================================
+// SECURITY CONTROL TAXONOMY
+// =============================================================================
+
+/// Canonical list of security controls tracked by Sentinel SLM.
+///
+/// The controlKey is the stable programmatic identifier (e.g. "PATCH_MGMT").
+/// Records are admin-managed and pre-seeded; the list rarely changes.
+model SecurityControl {
+  id          String                  @id @default(uuid())
+  controlKey  String                  @unique    // PATCH_MGMT / AUTH_CONTROLS / …
+  name        String                             // "Patch Management"
+  description String?
+  category    SecurityControlCategory
+  isActive    Boolean                 @default(true)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  vulnMappings      VulnerabilityControlMapping[]
+  assessments       ControlAssessment[]
+  frameworkControls FrameworkControl[]
+
+  @@index([controlKey])
+  @@index([category])
+  @@index([isActive])
+  @@map("security_controls")
+}
+
+// =============================================================================
+// VULNERABILITY → CONTROL MAPPING
+// =============================================================================
+
+/// Links an existing Vulnerability to one or more SecurityControls.
+///
+/// Mapping table (not a direct FK) because a single vulnerability commonly
+/// spans multiple control domains — e.g. a hardcoded-credential finding maps
+/// to both AUTH_CONTROLS and SECRETS_MGMT simultaneously.
+///
+/// mappedBy tracks provenance: ANALYST (confirmed), AUTO_RULE (keyword match),
+/// or AI (suggested, awaiting analyst review).
+model VulnerabilityControlMapping {
+  id              String            @id @default(uuid())
+  vulnerabilityId String
+  controlId       String
+  mappedBy        MappingSource     @default(AUTO_RULE)
+  confidence      MappingConfidence @default(MEDIUM)
+  createdAt       DateTime          @default(now())
+
+  vulnerability Vulnerability  @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+  control       SecurityControl @relation(fields: [controlId],       references: [id])
+
+  @@unique([vulnerabilityId, controlId])
+  @@index([controlId])
+  @@index([vulnerabilityId])
+  @@map("vulnerability_control_mappings")
+}
+
+// =============================================================================
+// CONTROL ASSESSMENT
+// =============================================================================
+
+/// Point-in-time assessment of a SecurityControl for one asset.
+///
+/// assetType discriminates between "APPLICATION" and "INFRASTRUCTURE_ASSET".
+/// assetId is a plain UUID that references Application.id or
+/// InfrastructureAsset.id — polymorphic reference, consistent with the
+/// existing Comment and Attachment pattern in this schema.
+///
+/// The compliance calculation priority cascade is:
+///   1. If a ControlAssessment exists for (assetId, controlId) → use its status.
+///   2. Else if an open VulnerabilityControlMapping exists for the asset → NON_COMPLIANT.
+///   3. Else → NOT_ASSESSED (excluded from compliance percentage).
+model ControlAssessment {
+  id         String                @id @default(uuid())
+  controlId  String
+  assetType  String                // "APPLICATION" | "INFRASTRUCTURE_ASSET"
+  assetId    String                // FK to Application.id or InfrastructureAsset.id
+  status     ControlAssessmentStatus
+  notes      String?
+  assessedAt DateTime
+  assessedBy String?               // User.id of the analyst
+  source     AssessmentSource      @default(MANUAL)
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  control SecurityControl @relation(fields: [controlId], references: [id])
+
+  @@index([controlId])
+  @@index([assetId])
+  @@index([assetType, assetId])
+  @@index([assessedAt])
+  @@map("control_assessments")
+}
+
+// =============================================================================
+// COMPLIANCE FRAMEWORKS
+// =============================================================================
+
+/// External compliance framework definition (CIS, NIST, ISO 27001, PCI DSS).
+///
+/// Adding framework support is a data-only operation: insert one
+/// ComplianceFramework row and its FrameworkControl mapping rows — no schema
+/// changes are required.
+model ComplianceFramework {
+  id           String               @id @default(uuid())
+  frameworkKey ComplianceFrameworkKey @unique
+  name         String               // "CIS Controls v8"
+  version      String?              // "8.0"
+  description  String?
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+
+  controls FrameworkControl[]
+
+  @@index([frameworkKey])
+  @@map("compliance_frameworks")
+}
+
+/// Maps one SecurityControl to one requirement within a ComplianceFramework.
+///
+/// frameworkControlId is the framework's own identifier for the requirement
+/// (e.g. "CIS-4.1", "NIST-PR.IP-12", "ISO-A.12.6.1", "PCI-6.3.3").
+/// This allows cross-referencing in compliance reports without hardcoding
+/// framework logic in the service layer.
+model FrameworkControl {
+  id                 String   @id @default(uuid())
+  frameworkId        String
+  controlId          String
+  frameworkControlId String   // e.g. "CIS-7.3", "NIST-ID.AM-1", "ISO-A.8.8"
+  description        String?
+  createdAt          DateTime @default(now())
+
+  framework ComplianceFramework @relation(fields: [frameworkId], references: [id])
+  control   SecurityControl     @relation(fields: [controlId],   references: [id])
+
+  @@unique([frameworkId, controlId])
+  @@index([frameworkId])
+  @@index([controlId])
+  @@map("framework_controls")
+}
