@@ -56,6 +56,16 @@ const REQUEST_SELECT = {
       slaTracking: { select: { dueDate: true, isBreached: true, daysRemaining: true } },
     },
   },
+  findings: {
+    orderBy: { createdAt: 'desc' as const },
+    select: {
+      id: true, findingId: true, title: true, description: true,
+      severity: true, status: true, sourceType: true, cvssScore: true,
+      cveId: true, recommendation: true, evidence: true, convertedToVulnerability: true,
+      createdAt: true, updatedAt: true,
+      vulnerability: { select: { id: true, vulnId: true, status: true } },
+    }
+  },
   comments: {
     orderBy: { createdAt: 'asc' as const },
     select: {

@@ -198,7 +198,7 @@ export class AIService implements OnModuleInit {
   private buildConfig() {
     return {
       provider:    this.settingsCache['ai.provider']    || DEFAULTS.provider,
-      apiKey:      this.settingsCache['ai.apiKey']      || '',
+      apiKey:      this.settingsCache['ai.apiKey']      || process.env.OPENROUTER_API_KEY || '',
       model:       this.settingsCache['ai.model']       || DEFAULTS.model,
       temperature: parseFloat(this.settingsCache['ai.temperature'] || String(DEFAULTS.temperature)),
       maxTokens:   parseInt(this.settingsCache['ai.maxTokens']  || String(DEFAULTS.maxTokens), 10),

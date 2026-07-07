@@ -125,11 +125,26 @@ async function main() {
     { appId:'APP-E012', name:'mobile-banking-api',           desc:'Core REST API powering iOS and Android mobile banking apps',               type:AssetType.API,             env:Environment.PRODUCTION,     dept:'Core Banking',     crit:'Critical', cls:'Internet Facing', oe:'sunita.patil@msil.in',   net:true,  pii:true,  bia:true,  url:'https://api.banking.msil.in',                                    vs:'Scheduled', nv:new Date('2026-08-01') },
     { appId:'APP-E013', name:'api-gateway',                  desc:'Enterprise API gateway: routing, rate limiting, auth, observability',      type:AssetType.API,             env:Environment.PRODUCTION,     dept:'Digital Products', crit:'Critical', cls:'Internet Facing', oe:'tarun.ahuja@msil.in',    net:true,  pii:false, bia:true,  url:'https://api-gw.msil.in',                                         vs:'Scheduled', nv:new Date('2026-07-01') },
     { appId:'APP-E014', name:'kyc-service',                  desc:'e-VKYC, Aadhaar verification, and CKYC registry integration API',          type:AssetType.API,             env:Environment.PRE_PRODUCTION, dept:'Digital Products', crit:'High',     cls:'Internet Facing', oe:'radha.k@msil.in',        net:true,  pii:true,  bia:true,  url:'https://kyc-uat.msil.in',                                        vs:'Scheduled', nv:new Date('2026-09-15') },
-    // Modern Microservices (4)
-    { appId:'APP-E015', name:'fraud-detection-engine',       desc:'Real-time ML fraud detection and transaction anomaly monitoring',          type:AssetType.MICROSERVICE,    env:Environment.PRODUCTION,     dept:'Core Banking',     crit:'Critical', cls:'Internal',        oe:'neha.agarwal@msil.in',   net:false, pii:true,  bia:true,                                                                vs:'Due',       nv:new Date('2026-07-30') },
-    { appId:'APP-E016', name:'authentication-service',       desc:'Centralized auth microservice: JWT issuance, session, token refresh',     type:AssetType.MICROSERVICE,    env:Environment.PRODUCTION,     dept:'Digital Products', crit:'Critical', cls:'Internet Facing', oe:'tarun.ahuja@msil.in',    net:true,  pii:false, bia:true,                                                                vs:'Overdue',   nv:new Date('2026-06-15') },
-    { appId:'APP-E017', name:'notification-service',         desc:'Multi-channel notification engine: SMS, email, push, in-app alerts',       type:AssetType.MICROSERVICE,    env:Environment.DEVELOPMENT,    dept:'Digital Products', crit:'Medium',   cls:'Internal',        oe:'ravi.joshi@msil.in',     net:false, pii:false, bia:false,                                                                vs:'Scheduled', nv:new Date('2026-10-01') },
-    { appId:'APP-E018', name:'document-management-service',  desc:'Enterprise document repository microservice',                              type:AssetType.MICROSERVICE,    env:Environment.DEVELOPMENT,    dept:'Corporate IT',     crit:'Low',      cls:'Internal',        oe:'amit.kapoor@msil.in',    net:false, pii:false, bia:false,                                                                vs:'Scheduled', nv:new Date('2026-10-15') },
+    // Internal Core APIs (formerly Microservices)
+    { appId:'APP-E015', name:'fraud-detection-engine',       desc:'Real-time ML fraud detection and transaction anomaly monitoring',          type:AssetType.API,             env:Environment.PRODUCTION,     dept:'Core Banking',     crit:'Critical', cls:'Internal',        oe:'neha.agarwal@msil.in',   net:false, pii:true,  bia:true,                                                                vs:'Due',       nv:new Date('2026-07-30') },
+    { appId:'APP-E016', name:'authentication-service',       desc:'Centralized auth microservice: JWT issuance, session, token refresh',      type:AssetType.API,             env:Environment.PRODUCTION,     dept:'Digital Products', crit:'Critical', cls:'Internet Facing', oe:'tarun.ahuja@msil.in',    net:true,  pii:false, bia:true,                                                                vs:'Overdue',   nv:new Date('2026-06-15') },
+    { appId:'APP-E017', name:'notification-service',         desc:'Multi-channel notification engine: SMS, email, push, in-app alerts',       type:AssetType.API,             env:Environment.DEVELOPMENT,    dept:'Digital Products', crit:'Medium',   cls:'Internal',        oe:'ravi.joshi@msil.in',     net:false, pii:false, bia:false,                                                                vs:'Scheduled', nv:new Date('2026-10-01') },
+    { appId:'APP-E018', name:'document-management-service',  desc:'Enterprise document repository microservice',                              type:AssetType.API,             env:Environment.DEVELOPMENT,    dept:'Corporate IT',     crit:'Low',      cls:'Internal',        oe:'amit.kapoor@msil.in',    net:false, pii:false, bia:false,                                                                vs:'Scheduled', nv:new Date('2026-10-15') },
+    // Mobile Applications (6)
+    { appId:'APP-E019', name:'retail-banking-ios',           desc:'Retail Banking Mobile App for iOS customers',                              type:AssetType.MOBILE_IOS,      env:Environment.PRODUCTION,     dept:'Digital Products', crit:'Critical', cls:'Internet Facing', oe:'vikram.singh@msil.in',   net:true,  pii:true,  bia:true,                                                                vs:'Scheduled', nv:new Date('2026-11-01') },
+    { appId:'APP-E020', name:'retail-banking-android',       desc:'Retail Banking Mobile App for Android customers',                          type:AssetType.MOBILE_ANDROID,  env:Environment.PRODUCTION,     dept:'Digital Products', crit:'Critical', cls:'Internet Facing', oe:'vikram.singh@msil.in',   net:true,  pii:true,  bia:true,                                                                vs:'Scheduled', nv:new Date('2026-11-01') },
+    { appId:'APP-E021', name:'corporate-banking-mobile',     desc:'Corporate Banking Mobile App for business customers',                      type:AssetType.MOBILE_IOS,      env:Environment.PRODUCTION,     dept:'Digital Products', crit:'Critical', cls:'Internet Facing', oe:'ravi.joshi@msil.in',     net:true,  pii:true,  bia:true,                                                                vs:'Scheduled', nv:new Date('2026-10-15') },
+    { appId:'APP-E022', name:'field-operations-agent-app',   desc:'Internal Mobile App for Field Sales and KYC Agents',                       type:AssetType.MOBILE_ANDROID,  env:Environment.PRODUCTION,     dept:'Corporate IT',     crit:'High',     cls:'Internal',        oe:'kavita.reddy@msil.in',   net:true,  pii:true,  bia:false,                                                               vs:'Due',       nv:new Date('2026-07-20') },
+    { appId:'APP-E023', name:'retail-banking-ios-uat',       desc:'UAT build for Retail Banking iOS App',                                     type:AssetType.MOBILE_IOS,      env:Environment.PRE_PRODUCTION, dept:'Digital Products', crit:'High',     cls:'Internet Facing', oe:'vikram.singh@msil.in',   net:true,  pii:true,  bia:false,                                                               vs:'Scheduled', nv:new Date('2026-09-01') },
+    { appId:'APP-E024', name:'retail-banking-android-uat',   desc:'UAT build for Retail Banking Android App',                                 type:AssetType.MOBILE_ANDROID,  env:Environment.PRE_PRODUCTION, dept:'Digital Products', crit:'High',     cls:'Internet Facing', oe:'vikram.singh@msil.in',   net:true,  pii:true,  bia:false,                                                               vs:'Scheduled', nv:new Date('2026-09-01') },
+    // Enterprise Web Apps Expansion (3)
+    { appId:'APP-E025', name:'vendor-management-portal-uat', desc:'Staging environment for Vendor Management and Onboarding',                 type:AssetType.WEB_APPLICATION, env:Environment.PRE_PRODUCTION, dept:'Corporate IT',     crit:'Medium',   cls:'Internet Facing', oe:'amit.kapoor@msil.in',    net:true,  pii:true,  bia:false, url:'https://vendor-uat.msil.in',                             vs:'Scheduled', nv:new Date('2026-10-01') },
+    { appId:'APP-E026', name:'it-service-desk-uat',          desc:'UAT environment for ITSM Ticketing Portal',                                type:AssetType.WEB_APPLICATION, env:Environment.PRE_PRODUCTION, dept:'Corporate IT',     crit:'Medium',   cls:'Internal',        oe:'amit.kapoor@msil.in',    net:false, pii:false, bia:false, url:'https://itsm-uat.msil.in',                               vs:'Scheduled', nv:new Date('2026-09-15') },
+    { appId:'APP-E027', name:'developer-portal-sandbox',     desc:'Development sandbox for API developer portal',                             type:AssetType.WEB_APPLICATION, env:Environment.DEVELOPMENT,    dept:'Digital Products', crit:'Low',      cls:'Internal',        oe:'tarun.ahuja@msil.in',    net:false, pii:false, bia:false, url:'https://dev-portal.msil.in',                             vs:'Scheduled', nv:new Date('2026-08-01') },
+    // APIs Expansion (3)
+    { appId:'APP-E028', name:'open-banking-psd2-uat',        desc:'Pre-Production Open Banking PSD2 Integration API',                         type:AssetType.API,             env:Environment.PRE_PRODUCTION, dept:'Digital Products', crit:'High',     cls:'Internet Facing', oe:'sunita.patil@msil.in',   net:true,  pii:true,  bia:false, url:'https://psd2-uat.msil.in',                               vs:'Due',       nv:new Date('2026-07-10') },
+    { appId:'APP-E029', name:'core-erp-sync-dev',            desc:'Development endpoint for Core ERP synchronization',                        type:AssetType.API,             env:Environment.DEVELOPMENT,    dept:'Corporate IT',     crit:'Medium',   cls:'Internal',        oe:'kavita.reddy@msil.in',   net:false, pii:false, bia:false, url:'https://erp-sync-dev.msil.in',                           vs:'Scheduled', nv:new Date('2026-12-01') },
+    { appId:'APP-E030', name:'fraud-scoring-ml-dev',         desc:'Experimental ML inference API for transaction scoring',                    type:AssetType.API,             env:Environment.DEVELOPMENT,    dept:'Core Banking',     crit:'Low',      cls:'Internal',        oe:'neha.agarwal@msil.in',   net:false, pii:false, bia:false, url:'https://fraud-ml-dev.msil.in',                           vs:'Scheduled', nv:new Date('2026-11-15') },
   ];
 
   const aMap: Record<string, string> = {};
@@ -340,6 +355,18 @@ async function main() {
     { a: 'APP-E016', i: 'SRV-E018' }, { a: 'APP-E016', i: 'SRV-E013' }, { a: 'APP-E016', i: 'SRV-E027' },
     { a: 'APP-E017', i: 'SRV-E020' },
     { a: 'APP-E018', i: 'SRV-E020' },
+    { a: 'APP-E019', i: 'SRV-E017' }, { a: 'APP-E019', i: 'SRV-E021' },
+    { a: 'APP-E020', i: 'SRV-E017' }, { a: 'APP-E020', i: 'SRV-E021' },
+    { a: 'APP-E021', i: 'SRV-E017' }, { a: 'APP-E021', i: 'SRV-E021' },
+    { a: 'APP-E022', i: 'SRV-E018' }, { a: 'APP-E022', i: 'SRV-E022' },
+    { a: 'APP-E023', i: 'SRV-E019' }, { a: 'APP-E023', i: 'SRV-E024' },
+    { a: 'APP-E024', i: 'SRV-E019' }, { a: 'APP-E024', i: 'SRV-E024' },
+    { a: 'APP-E025', i: 'SRV-E028' }, { a: 'APP-E025', i: 'SRV-E030' },
+    { a: 'APP-E026', i: 'SRV-E029' }, { a: 'APP-E026', i: 'SRV-E030' },
+    { a: 'APP-E027', i: 'SRV-E020' },
+    { a: 'APP-E028', i: 'SRV-E019' }, { a: 'APP-E028', i: 'SRV-E024' },
+    { a: 'APP-E029', i: 'SRV-E020' },
+    { a: 'APP-E030', i: 'SRV-E020' },
   ];
 
   const appInfraRecords = appInfraMap.map(mapping => ({
@@ -373,6 +400,18 @@ async function main() {
     { a: 'APP-E016', c: 'CR-E017' }, { a: 'APP-E016', c: 'CR-E018' },
     { a: 'APP-E017', c: 'CR-E017' }, { a: 'APP-E017', c: 'CR-E013' },
     { a: 'APP-E018', c: 'CR-E011' }, { a: 'APP-E018', c: 'CR-E022' }, { a: 'APP-E018', c: 'CR-E020' },
+    { a: 'APP-E019', c: 'CR-E011' }, { a: 'APP-E019', c: 'CR-E017' },
+    { a: 'APP-E020', c: 'CR-E011' }, { a: 'APP-E020', c: 'CR-E017' },
+    { a: 'APP-E021', c: 'CR-E011' }, { a: 'APP-E021', c: 'CR-E017' },
+    { a: 'APP-E022', c: 'CR-E012' }, { a: 'APP-E022', c: 'CR-E018' },
+    { a: 'APP-E023', c: 'CR-E028' }, { a: 'APP-E023', c: 'CR-E029' },
+    { a: 'APP-E024', c: 'CR-E028' }, { a: 'APP-E024', c: 'CR-E029' },
+    { a: 'APP-E025', c: 'CR-E028' }, { a: 'APP-E025', c: 'CR-E030' },
+    { a: 'APP-E026', c: 'CR-E029' }, { a: 'APP-E026', c: 'CR-E030' },
+    { a: 'APP-E027', c: 'CR-E011' }, { a: 'APP-E027', c: 'CR-E022' },
+    { a: 'APP-E028', c: 'CR-E028' }, { a: 'APP-E028', c: 'CR-E029' },
+    { a: 'APP-E029', c: 'CR-E011' }, { a: 'APP-E029', c: 'CR-E022' },
+    { a: 'APP-E030', c: 'CR-E011' }, { a: 'APP-E030', c: 'CR-E022' },
   ];
 
   const appCloudRecords = appCloudMap.map(mapping => ({

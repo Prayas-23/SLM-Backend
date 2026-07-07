@@ -212,25 +212,30 @@ export class ApplicationsService {
 
     let critical = 0;
     let highRisk = 0;
-    let totalSlaSum = 0;
+    let totalVulnsWithSla = 0;
+    let totalWithinSla = 0;
     
     for (const app of data) {
       if (app.criticality === 'Critical') critical++;
       const allVulns = app.securityRequests?.flatMap((req: any) => req.vulnerabilities) || [];
       const openVulnCount = allVulns.filter((v: any) => v.status !== 'CLOSED').length;
-      if (openVulnCount >= 10) highRisk++;
+      const critHighCount = allVulns.filter((v: any) => v.status !== 'CLOSED' && (v.severity === 'CRITICAL' || v.severity === 'HIGH')).length;
+      if (critHighCount > 0) highRisk++;
       
       const vulnsWithSla = allVulns.filter((v: any) => v.status !== 'CLOSED' && v.slaDueDate);
       const withinSla = vulnsWithSla.filter((v: any) => new Date(v.slaDueDate!) >= new Date()).length;
-      const slaCompliancePct = vulnsWithSla.length > 0 ? (withinSla / vulnsWithSla.length) * 100 : 100;
-      totalSlaSum += slaCompliancePct;
+      
+      totalVulnsWithSla += vulnsWithSla.length;
+      totalWithinSla += withinSla;
     }
+
+    const avgSla = totalVulnsWithSla > 0 ? Math.round((totalWithinSla / totalVulnsWithSla) * 100) : 100;
 
     return {
       total: data.length,
       critical,
       highRisk,
-      avgSla: data.length > 0 ? Math.round(totalSlaSum / data.length) : 100
+      avgSla
     };
   }
 
